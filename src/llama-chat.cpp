@@ -1,21 +1,21 @@
 #include "llama-chat.h"
 
-#include "llama.h"
-
+#include <algorithm>
 #include <map>
 #include <sstream>
-#include <algorithm>
+
+#include "llama.h"
 
 #if __cplusplus >= 202000L
-    #define LU8(x) (const char*)(u8##x)
+#    define LU8(x) (const char *) (u8##x)
 #else
-    #define LU8(x) u8##x
+#    define LU8(x) u8##x
 #endif
 
 // trim whitespace from the beginning and end of a string
 static std::string trim(const std::string & str) {
     size_t start = 0;
-    size_t end = str.size();
+    size_t end   = str.size();
     while (start < end && isspace(str[start])) {
         start += 1;
     }
@@ -67,6 +67,7 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "smolvlm",           LLM_CHAT_TEMPLATE_SMOLVLM           },
     { "hunyuan-moe",       LLM_CHAT_TEMPLATE_HUNYUAN_MOE       },
     { "kimi-k2",           LLM_CHAT_TEMPLATE_KIMI_K2           },
+    { "skywork_chat",      LLM_CHAT_TEMPLATE_SKYWORK_CHAT      },
 };
 
 llm_chat_template llm_chat_template_from_str(const std::string & name) {
@@ -84,11 +85,12 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
         return tmpl.find(haystack) != std::string::npos;
     };
     if (tmpl_contains("<|im_start|>")) {
-        return tmpl_contains("<|im_sep|>")
-            ? LLM_CHAT_TEMPLATE_PHI_4
-            : tmpl_contains("<end_of_utterance>")
-                ? LLM_CHAT_TEMPLATE_SMOLVLM // SmolVLM uses <|im_start|> as BOS, but it is NOT chatml
-                : LLM_CHAT_TEMPLATE_CHATML;
+        return tmpl_contains("<|im_sep|>") ?
+                   LLM_CHAT_TEMPLATE_PHI_4 :
+               tmpl_contains("<end_of_utterance>") ?
+                   LLM_CHAT_TEMPLATE_SMOLVLM  // SmolVLM uses <|im_start|> as BOS, but it is NOT chatml
+                   :
+                   LLM_CHAT_TEMPLATE_CHATML;
     } else if (tmpl.find("mistral") == 0 || tmpl_contains("[INST]")) {
         if (tmpl_contains("[SYSTEM_PROMPT]")) {
             return LLM_CHAT_TEMPLATE_MISTRAL_V7;
@@ -96,8 +98,7 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
             // catches official 'v1' template
             tmpl_contains("' [INST] ' + system_message")
             // catches official 'v3' and 'v3-tekken' templates
-            || tmpl_contains("[AVAILABLE_TOOLS]")
-        ) {
+            || tmpl_contains("[AVAILABLE_TOOLS]")) {
             // Official mistral 'v1', 'v3' and 'v3-tekken' templates
             // See: https://github.com/mistralai/cookbook/blob/main/concept-deep-dive/tokenization/chat_templates.md
             // See: https://github.com/mistralai/cookbook/blob/main/concept-deep-dive/tokenization/templates.md
@@ -113,7 +114,7 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
             // See: https://huggingface.co/blog/llama2#how-to-prompt-llama-2
             bool support_system_message = tmpl_contains("<<SYS>>");
             bool add_bos_inside_history = tmpl_contains("bos_token + '[INST]");
-            bool strip_message = tmpl_contains("content.strip()");
+            bool strip_message          = tmpl_contains("content.strip()");
             if (strip_message) {
                 return LLM_CHAT_TEMPLATE_LLAMA_2_SYS_STRIP;
             } else if (add_bos_inside_history) {
@@ -150,6 +151,8 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
             return LLM_CHAT_TEMPLATE_VICUNA_ORCA;
         }
         return LLM_CHAT_TEMPLATE_VICUNA;
+    } else if (tmpl_contains("Human: ") && tmpl_contains("Assistant:")) {
+        return LLM_CHAT_TEMPLATE_SKYWORK_CHAT;
     } else if (tmpl_contains("### Instruction:") && tmpl_contains("<|EOT|>")) {
         // deepseek-ai/deepseek-coder-33b-instruct
         return LLM_CHAT_TEMPLATE_DEEPSEEK;
@@ -166,7 +169,8 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
         return LLM_CHAT_TEMPLATE_MINICPM;
     } else if (tmpl_contains("'Assistant: ' + message['content'] + eos_token")) {
         return LLM_CHAT_TEMPLATE_DEEPSEEK_2;
-    } else if (tmpl_contains(LU8("<｜Assistant｜>")) && tmpl_contains(LU8("<｜User｜>")) && tmpl_contains(LU8("<｜end▁of▁sentence｜>"))) {
+    } else if (tmpl_contains(LU8("<｜Assistant｜>")) && tmpl_contains(LU8("<｜User｜>")) &&
+               tmpl_contains(LU8("<｜end▁of▁sentence｜>"))) {
         return LLM_CHAT_TEMPLATE_DEEPSEEK_3;
     } else if (tmpl_contains("[|system|]") && tmpl_contains("[|assistant|]") && tmpl_contains("[|endofturn|]")) {
         if (tmpl_contains("[|tool|]")) {
@@ -179,7 +183,8 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
         return LLM_CHAT_TEMPLATE_RWKV_WORLD;
     } else if (tmpl_contains("<|start_of_role|>")) {
         return LLM_CHAT_TEMPLATE_GRANITE;
-    } else if (tmpl_contains("message['role'] + additional_special_tokens[0] + message['content'] + additional_special_tokens[1]")) {
+    } else if (tmpl_contains("message['role'] + additional_special_tokens[0] + message['content'] + "
+                             "additional_special_tokens[1]")) {
         return LLM_CHAT_TEMPLATE_GIGACHAT;
     } else if (tmpl_contains("<|role_start|>")) {
         return LLM_CHAT_TEMPLATE_MEGREZ;
@@ -201,10 +206,8 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
 
 // Simple version of "llama_apply_chat_template" that only works with strings
 // This function uses heuristic checks to determine commonly used template. It is not a jinja parser.
-int32_t llm_chat_apply_template(
-    llm_chat_template tmpl,
-    const std::vector<const llama_chat_message *> & chat,
-    std::string & dest, bool add_ass) {
+int32_t llm_chat_apply_template(llm_chat_template tmpl, const std::vector<const llama_chat_message *> & chat,
+                                std::string & dest, bool add_ass) {
     // Taken from the research: https://github.com/ggerganov/llama.cpp/issues/5527
     std::stringstream ss;
     if (tmpl == LLM_CHAT_TEMPLATE_CHATML) {
@@ -231,15 +234,14 @@ int32_t llm_chat_apply_template(
                 ss << trailing_space << content << "</s>";
             }
         }
-    } else if (tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V1
-            || tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3
-            || tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN) {
+    } else if (tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V1 || tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3 ||
+               tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN) {
         // See: https://github.com/mistralai/cookbook/blob/main/concept-deep-dive/tokenization/chat_templates.md
         // See: https://github.com/mistralai/cookbook/blob/main/concept-deep-dive/tokenization/templates.md
-        std::string leading_space = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V1 ? " " : "";
-        std::string trailing_space = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN ? "" : " ";
-        bool trim_assistant_message = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3;
-        bool is_inside_turn = false;
+        std::string leading_space          = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V1 ? " " : "";
+        std::string trailing_space         = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN ? "" : " ";
+        bool        trim_assistant_message = tmpl == LLM_CHAT_TEMPLATE_MISTRAL_V3;
+        bool        is_inside_turn         = false;
         for (auto message : chat) {
             if (!is_inside_turn) {
                 ss << leading_space << "[INST]" << trailing_space;
@@ -256,11 +258,8 @@ int32_t llm_chat_apply_template(
                 is_inside_turn = false;
             }
         }
-    } else if (
-            tmpl == LLM_CHAT_TEMPLATE_LLAMA_2
-            || tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS
-            || tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_BOS
-            || tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_STRIP) {
+    } else if (tmpl == LLM_CHAT_TEMPLATE_LLAMA_2 || tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS ||
+               tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_BOS || tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_STRIP) {
         // llama2 template and its variants
         // [variant] support system message
         // See: https://huggingface.co/blog/llama2#how-to-prompt-llama-2
@@ -268,9 +267,9 @@ int32_t llm_chat_apply_template(
         // [variant] add BOS inside history
         bool add_bos_inside_history = tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_BOS;
         // [variant] trim spaces from the input message
-        bool strip_message = tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_STRIP;
+        bool strip_message          = tmpl == LLM_CHAT_TEMPLATE_LLAMA_2_SYS_STRIP;
         // construct the prompt
-        bool is_inside_turn = true; // skip BOS at the beginning
+        bool is_inside_turn         = true;  // skip BOS at the beginning
         ss << "[INST] ";
         for (auto message : chat) {
             std::string content = strip_message ? trim(message->content) : message->content;
@@ -330,7 +329,7 @@ int32_t llm_chat_apply_template(
     } else if (tmpl == LLM_CHAT_TEMPLATE_MONARCH) {
         // mlabonne/AlphaMonarch-7B template (the <s> is included inside history)
         for (auto message : chat) {
-            std::string bos = (message == chat.front()) ? "" : "<s>"; // skip BOS for first message
+            std::string bos = (message == chat.front()) ? "" : "<s>";  // skip BOS for first message
             ss << bos << message->role << "\n" << message->content << "</s>\n";
         }
         if (add_ass) {
@@ -596,7 +595,7 @@ int32_t llm_chat_apply_template(
             std::string role(chat[i]->role);
             if (role == "user") {
                 ss << "user<|role_sep|>" << chat[i]->content << "<|message_sep|>"
-                << "available functions<|role_sep|>[]<|message_sep|>";
+                   << "available functions<|role_sep|>[]<|message_sep|>";
             } else if (role == "assistant") {
                 ss << "assistant<|role_sep|>" << chat[i]->content << "<|message_sep|>";
             }
@@ -606,7 +605,7 @@ int32_t llm_chat_apply_template(
         if (add_ass) {
             ss << "assistant<|role_sep|>";
         }
-    }  else if (tmpl == LLM_CHAT_TEMPLATE_MEGREZ) {
+    } else if (tmpl == LLM_CHAT_TEMPLATE_MEGREZ) {
         // Megrez template
         for (auto message : chat) {
             std::string role(message->role);
@@ -634,7 +633,7 @@ int32_t llm_chat_apply_template(
         if (add_ass) {
             ss << " Ассистент:[SEP]";
         }
-    }  else if (tmpl == LLM_CHAT_TEMPLATE_BAILING) {
+    } else if (tmpl == LLM_CHAT_TEMPLATE_BAILING) {
         // Bailing (Ling) template
         for (auto message : chat) {
             std::string role(message->role);
@@ -662,7 +661,7 @@ int32_t llm_chat_apply_template(
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_SMOLVLM) {
         // SmolVLM
-        ss << "<|im_start|>"; // uses <|im_start|> as BOS, but the actual content is NOT chatml
+        ss << "<|im_start|>";  // uses <|im_start|> as BOS, but the actual content is NOT chatml
         for (auto message : chat) {
             std::string role(message->role);
             if (role == "system") {
@@ -722,6 +721,27 @@ int32_t llm_chat_apply_template(
             if (add_ass) {
                 ss << "<|im_assistant|>assistant<|im_middle|>";
             }
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_SKYWORK_CHAT) {
+        // Skywork Chat (approximate Vicuna style)
+        std::string system_prompt = "";
+        for (auto message : chat) {
+            std::string role(message->role);
+            if (role == "system") {
+                system_prompt += message->content;
+                continue;
+            } else if (role == "user") {
+                if (!system_prompt.empty()) {
+                    ss << system_prompt << "\n\n";
+                    system_prompt.clear();
+                }
+                ss << "Human: " << message->content << "\n\nAssistant: ";
+            } else if (role == "assistant") {
+                ss << message->content << "</s>\n";
+            }
+        }
+        if (add_ass) {
+            ss << "Assistant:";
         }
     } else {
         // template not supported
