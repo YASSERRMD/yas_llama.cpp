@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 enum llm_chat_template {
     LLM_CHAT_TEMPLATE_CHATML,
@@ -47,6 +47,7 @@ enum llm_chat_template {
     LLM_CHAT_TEMPLATE_DOTS1,
     LLM_CHAT_TEMPLATE_HUNYUAN_MOE,
     LLM_CHAT_TEMPLATE_KIMI_K2,
+    LLM_CHAT_TEMPLATE_SKYWORK_CHAT,
     LLM_CHAT_TEMPLATE_UNKNOWN,
 };
 
@@ -56,7 +57,5 @@ llm_chat_template llm_chat_template_from_str(const std::string & name);
 
 llm_chat_template llm_chat_detect_template(const std::string & tmpl);
 
-int32_t llm_chat_apply_template(
-    llm_chat_template tmpl,
-    const std::vector<const llama_chat_message *> & chat,
-    std::string & dest, bool add_ass);
+int32_t llm_chat_apply_template(llm_chat_template tmpl, const std::vector<const llama_chat_message *> & chat,
+                                std::string & dest, bool add_ass);
