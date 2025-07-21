@@ -980,6 +980,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                }
             } break;
         case LLM_ARCH_GPT2:
+        case LLM_ARCH_CODEGEN:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS, hparams.f_norm_eps);
                 switch (hparams.n_layer) {
@@ -3080,6 +3081,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     }
                 } break;
             case LLM_ARCH_GPT2:
+            case LLM_ARCH_CODEGEN:
                 {
                     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
                     pos_embd = create_tensor(tn(LLM_TENSOR_POS_EMBD,   "weight"), {n_embd, n_ctx_train}, 0);
@@ -17212,6 +17214,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
                 llm = std::make_unique<llm_build_plamo2>(*this, params);
             } break;
         case LLM_ARCH_GPT2:
+        case LLM_ARCH_CODEGEN:
             {
                 llm = std::make_unique<llm_build_gpt2>(*this, params);
             } break;
