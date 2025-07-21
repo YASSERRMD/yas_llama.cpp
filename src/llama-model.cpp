@@ -1274,6 +1274,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
+        case LLM_ARCH_CODEGEN:
         case LLM_ARCH_GPTNEOX:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS, hparams.f_norm_eps);
@@ -3850,6 +3851,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd, n_ff}, 0);
                     }
                 } break;
+            case LLM_ARCH_CODEGEN:
             case LLM_ARCH_GPTNEOX:
                 {
                     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
@@ -17293,6 +17295,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             {
                 llm = std::make_unique<llm_build_openelm>(*this, params);
             } break;
+        case LLM_ARCH_CODEGEN:
         case LLM_ARCH_GPTNEOX:
             {
                 llm = std::make_unique<llm_build_gptneox>(*this, params);
