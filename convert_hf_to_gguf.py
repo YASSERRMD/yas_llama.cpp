@@ -3373,7 +3373,12 @@ class CodeGenModel(TextModel):
         self.gguf_writer.add_block_count(self.hparams["n_layer"])
         self.gguf_writer.add_context_length(self.hparams.get("n_positions", self.hparams.get("n_ctx", 0)))
         self.gguf_writer.add_embedding_length(self.hparams["n_embd"])
-        inner_dim = self.hparams.get("n_inner", 4 * self.hparams["n_embd"])
+        # Some configs store ``n_inner`` with value ``None`` which would
+        # override the default when using ``dict.get``.  In that case fall
+        # back to ``4 * n_embd`` like the original HF implementation.
+        inner_dim = self.hparams.get("n_inner")
+        if inner_dim is None:
+            inner_dim = 4 * self.hparams["n_embd"]
         self.gguf_writer.add_feed_forward_length(inner_dim)
         self.gguf_writer.add_head_count(self.hparams["n_head"])
         self.gguf_writer.add_layer_norm_eps(self.hparams.get("layer_norm_epsilon", self.hparams.get("layer_norm_eps")))
