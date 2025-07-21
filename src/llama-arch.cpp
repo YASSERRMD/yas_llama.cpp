@@ -13,6 +13,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_GPT2,             "gpt2"             },
     { LLM_ARCH_GPTJ,             "gptj"             },
     { LLM_ARCH_GPTNEOX,          "gptneox"          },
+    { LLM_ARCH_CODEGEN,          "codegen"          },
     { LLM_ARCH_MPT,              "mpt"              },
     { LLM_ARCH_BAICHUAN,         "baichuan"         },
     { LLM_ARCH_STARCODER,        "starcoder"        },
@@ -417,6 +418,20 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
     },
     {
         LLM_ARCH_GPTNEOX,
+        {
+            { LLM_TENSOR_TOKEN_EMBD,      "token_embd" },
+            { LLM_TENSOR_OUTPUT_NORM,     "output_norm" },
+            { LLM_TENSOR_OUTPUT,          "output" },
+            { LLM_TENSOR_ATTN_NORM,       "blk.%d.attn_norm" },
+            { LLM_TENSOR_ATTN_QKV,        "blk.%d.attn_qkv" },
+            { LLM_TENSOR_ATTN_OUT,        "blk.%d.attn_output" },
+            { LLM_TENSOR_FFN_NORM,        "blk.%d.ffn_norm" },
+            { LLM_TENSOR_FFN_DOWN,        "blk.%d.ffn_down" },
+            { LLM_TENSOR_FFN_UP,          "blk.%d.ffn_up" },
+        },
+    },
+    {
+        LLM_ARCH_CODEGEN,
         {
             { LLM_TENSOR_TOKEN_EMBD,      "token_embd" },
             { LLM_TENSOR_OUTPUT_NORM,     "output_norm" },
