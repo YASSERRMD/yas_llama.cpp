@@ -3394,6 +3394,9 @@ class CodeGenModel(TextModel):
 
         if name.endswith((".qkv_proj.weight", ".out_proj.weight", ".qkv_proj.bias", ".out_proj.bias")):
             data_torch = data_torch.transpose(1, 0)
+            data_torch = data_torch.squeeze()
+            if data_torch.ndim == 2:
+                data_torch = data_torch.transpose(1, 0)
 
         return [(self.map_tensor_name(name), data_torch)]
 
