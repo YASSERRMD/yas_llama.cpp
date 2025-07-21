@@ -699,6 +699,9 @@ class GGUFWriter:
         else:
             self.add_array(Keys.Attention.HEAD_COUNT_KV.format(arch=self.arch), count)
 
+    def add_use_qkv_bias(self, use: bool) -> None:
+        self.add_bool(Keys.Attention.USE_QKV_BIAS.format(arch=self.arch), use)
+
     def add_key_length(self, length: int) -> None:
         self.add_uint32(Keys.Attention.KEY_LENGTH.format(arch=self.arch), length)
 
