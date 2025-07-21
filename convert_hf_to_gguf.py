@@ -3372,7 +3372,9 @@ class CodeGenModel(TextModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._found_qkv_bias = False
+
         self._use_qkv_bias_cfg = self.hparams.get("qkv_proj_bias", True)
+
 
     def set_gguf_parameters(self):
         self.gguf_writer.add_block_count(self.hparams["n_layer"])
@@ -3389,6 +3391,7 @@ class CodeGenModel(TextModel):
         self.gguf_writer.add_parallel_residual(self.hparams.get("use_parallel_residual", True))
         self.gguf_writer.add_layer_norm_eps(self.hparams.get("layer_norm_epsilon", self.hparams.get("layer_norm_eps")))
         self.gguf_writer.add_rope_dimension_count(self.hparams.get("rotary_dim", 0))
+        self.gguf_writer.add_use_qkv_bias(self.hparams.get("qkv_proj_bias", True))
         self.gguf_writer.add_file_type(self.ftype)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
@@ -3411,6 +3414,7 @@ class CodeGenModel(TextModel):
     def prepare_tensors(self):
         super().prepare_tensors()
 
+
         if not self._found_qkv_bias and self._use_qkv_bias_cfg:
             n_embd = self.hparams["n_embd"]
             for bid in range(self.hparams["n_layer"]):
@@ -3418,8 +3422,10 @@ class CodeGenModel(TextModel):
                 name = self.format_tensor_name(gguf.MODEL_TENSOR.ATTN_QKV, bid, suffix=".bias")
                 self.gguf_writer.add_tensor(name, bias.numpy())
 
+
         use_bias = self._found_qkv_bias or self._use_qkv_bias_cfg
         self.gguf_writer.add_use_qkv_bias(use_bias)
+
 
 
 @ModelBase.register("PhiForCausalLM")
