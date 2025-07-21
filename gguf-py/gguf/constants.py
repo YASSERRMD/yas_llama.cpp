@@ -144,6 +144,7 @@ class Keys:
         REL_BUCKETS_COUNT            = "{arch}.attention.relative_buckets_count"
         SLIDING_WINDOW               = "{arch}.attention.sliding_window"
         SCALE                        = "{arch}.attention.scale"
+        USE_QKV_BIAS                 = "{arch}.attention.use_qkv_bias"
         KEY_LENGTH_MLA               = "{arch}.attention.key_length_mla"
         VALUE_LENGTH_MLA             = "{arch}.attention.value_length_mla"
         SHARED_KV_LAYERS             = "{arch}.attention.shared_kv_layers"
@@ -2778,6 +2779,7 @@ KEY_ATTENTION_HEAD_COUNT        = Keys.Attention.HEAD_COUNT
 KEY_ATTENTION_HEAD_COUNT_KV     = Keys.Attention.HEAD_COUNT_KV
 KEY_ATTENTION_MAX_ALIBI_BIAS    = Keys.Attention.MAX_ALIBI_BIAS
 KEY_ATTENTION_CLAMP_KQV         = Keys.Attention.CLAMP_KQV
+KEY_ATTENTION_USE_QKV_BIAS      = Keys.Attention.USE_QKV_BIAS
 KEY_ATTENTION_LAYERNORM_EPS     = Keys.Attention.LAYERNORM_EPS
 KEY_ATTENTION_LAYERNORM_RMS_EPS = Keys.Attention.LAYERNORM_RMS_EPS
 

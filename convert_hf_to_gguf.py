@@ -3369,6 +3369,11 @@ class GPT2Model(TextModel):
 class CodeGenModel(TextModel):
     model_arch = gguf.MODEL_ARCH.CODEGEN
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._found_qkv_bias = False
+        self._use_qkv_bias_cfg = self.hparams.get("qkv_proj_bias", True)
+
     def set_gguf_parameters(self):
         self.gguf_writer.add_block_count(self.hparams["n_layer"])
         self.gguf_writer.add_context_length(self.hparams.get("n_positions", self.hparams.get("n_ctx", 0)))
@@ -3398,7 +3403,23 @@ class CodeGenModel(TextModel):
             if data_torch.ndim == 2:
                 data_torch = data_torch.transpose(1, 0)
 
+        if name.endswith(".qkv_proj.bias"):
+            self._found_qkv_bias = True
+
         return [(self.map_tensor_name(name), data_torch)]
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+
+        if not self._found_qkv_bias and self._use_qkv_bias_cfg:
+            n_embd = self.hparams["n_embd"]
+            for bid in range(self.hparams["n_layer"]):
+                bias = torch.zeros(3 * n_embd, dtype=torch.float32)
+                name = self.format_tensor_name(gguf.MODEL_TENSOR.ATTN_QKV, bid, suffix=".bias")
+                self.gguf_writer.add_tensor(name, bias.numpy())
+
+        use_bias = self._found_qkv_bias or self._use_qkv_bias_cfg
+        self.gguf_writer.add_use_qkv_bias(use_bias)
 
 
 @ModelBase.register("PhiForCausalLM")
