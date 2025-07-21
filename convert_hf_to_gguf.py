@@ -3365,6 +3365,33 @@ class GPT2Model(TextModel):
         return tensors
 
 
+@ModelBase.register("CodeGenForCausalLM")
+class CodeGenModel(TextModel):
+    model_arch = gguf.MODEL_ARCH.CODEGEN
+
+    def set_gguf_parameters(self):
+        self.gguf_writer.add_block_count(self.hparams["n_layer"])
+        self.gguf_writer.add_context_length(self.hparams.get("n_positions", self.hparams.get("n_ctx", 0)))
+        self.gguf_writer.add_embedding_length(self.hparams["n_embd"])
+        inner_dim = self.hparams.get("n_inner", 4 * self.hparams["n_embd"])
+        self.gguf_writer.add_feed_forward_length(inner_dim)
+        self.gguf_writer.add_head_count(self.hparams["n_head"])
+        self.gguf_writer.add_layer_norm_eps(self.hparams.get("layer_norm_epsilon", self.hparams.get("layer_norm_eps")))
+        self.gguf_writer.add_rope_dimension_count(self.hparams.get("rotary_dim", 0))
+        self.gguf_writer.add_file_type(self.ftype)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        if name.endswith((".attn.bias", ".attn.masked_bias")):
+            return []
+
+        if name.endswith((".qkv_proj.weight", ".out_proj.weight", ".qkv_proj.bias", ".out_proj.bias")):
+            data_torch = data_torch.transpose(1, 0)
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+
 @ModelBase.register("PhiForCausalLM")
 class Phi2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.PHI2
