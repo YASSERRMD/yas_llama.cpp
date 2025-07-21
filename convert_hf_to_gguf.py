@@ -3381,6 +3381,7 @@ class CodeGenModel(TextModel):
             inner_dim = 4 * self.hparams["n_embd"]
         self.gguf_writer.add_feed_forward_length(inner_dim)
         self.gguf_writer.add_head_count(self.hparams["n_head"])
+        self.gguf_writer.add_parallel_residual(self.hparams.get("use_parallel_residual", True))
         self.gguf_writer.add_layer_norm_eps(self.hparams.get("layer_norm_epsilon", self.hparams.get("layer_norm_eps")))
         self.gguf_writer.add_rope_dimension_count(self.hparams.get("rotary_dim", 0))
         self.gguf_writer.add_file_type(self.ftype)
