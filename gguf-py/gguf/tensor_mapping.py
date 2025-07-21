@@ -167,6 +167,7 @@ class TensorNameMap:
             "model.layers.layers.{bid}.mixer.qkv_proj",                            # plamo2
             "encoder.layers.{bid}.self_attention.query_key_value",                 # chatglm
             "transformer.layers.{bid}.attn.qkv_proj",                              # openelm
+            "transformer.h.{bid}.attn.qkv_proj",   # codegen
             "transformer_encoder.{bid}.qkv",                                       # neobert
         ),
 
