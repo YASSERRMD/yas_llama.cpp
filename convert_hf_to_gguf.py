@@ -6146,13 +6146,22 @@ class DeepseekOCRModel(DeepseekV2Model):
         # implementation to reuse and update the tensor mapping when switching to
         # the non-MLA path.
         self._uses_mla = bool(self.hparams.get("use_mla", True))
-        if not self._uses_mla:
-            self.model_arch = gguf.MODEL_ARCH.DEEPSEEK
-            self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+        self._text_impl = DeepseekV2Model if self._uses_mla else DeepseekModel
+        self._retarget_text_architecture(self._text_impl.model_arch)
+
+    def _retarget_text_architecture(self, arch: gguf.MODEL_ARCH) -> None:
+        if arch == self.model_arch:
+            return
+
+        self.model_arch = arch
+        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+        self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
+        self.gguf_writer.kv_data[0].pop(gguf.Keys.General.ARCHITECTURE, None)
+        self.gguf_writer.add_architecture()
 
     def _call_text_impl(self, method: str, *args, **kwargs):
-        impl = DeepseekV2Model if self._uses_mla else DeepseekModel
-        return getattr(impl, method)(self, *args, **kwargs)
+        return getattr(self._text_impl, method)(self, *args, **kwargs)
+
 
     def set_vocab(self):
         self._call_text_impl("set_vocab")
