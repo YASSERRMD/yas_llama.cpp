@@ -6162,6 +6162,7 @@ class DeepseekOCRModel(DeepseekV2Model):
     def _call_text_impl(self, method: str, *args, **kwargs):
         return getattr(self._text_impl, method)(self, *args, **kwargs)
 
+
     def set_vocab(self):
         self._call_text_impl("set_vocab")
 
