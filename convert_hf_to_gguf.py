@@ -6134,6 +6134,47 @@ class DeepseekV2Model(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
+@ModelBase.register("DeepseekOCRForCausalLM")
+class DeepseekOCRModel(DeepseekV2Model):
+    _experts: list[dict[str, Tensor]] | None = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # DeepSeek OCR may wrap either the original DeepSeek transformer (no MLA)
+        # or the MLA-enabled DeepSeek2/DeepSeek3 variants. Keep track of which text
+        # implementation to reuse and update the tensor mapping when switching to
+        # the non-MLA path.
+        self._uses_mla = bool(self.hparams.get("use_mla", True))
+        if not self._uses_mla:
+            self.model_arch = gguf.MODEL_ARCH.DEEPSEEK
+            self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+            self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
+            self.gguf_writer.add_architecture()
+
+    def _call_text_impl(self, method: str, *args, **kwargs):
+        impl = DeepseekV2Model if self._uses_mla else DeepseekModel
+        return getattr(impl, method)(self, *args, **kwargs)
+
+    def set_vocab(self):
+        self._call_text_impl("set_vocab")
+
+    def set_gguf_parameters(self):
+        self._call_text_impl("set_gguf_parameters")
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("language_model."):
+            name = name.replace("language_model.", "")
+        else:
+            # Skip multimodal tensors (vision encoder, projector, etc.).
+            return []
+
+        return self._call_text_impl("modify_tensors", data_torch, name, bid)
+
+    def prepare_tensors(self):
+        self._call_text_impl("prepare_tensors")
+
+
 @ModelBase.register("Dots1ForCausalLM")
 class Dots1Model(Qwen2MoeModel):
     model_arch = gguf.MODEL_ARCH.DOTS1
