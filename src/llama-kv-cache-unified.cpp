@@ -1418,7 +1418,9 @@ ggml_tensor * llama_kv_cache_unified::build_rope_shift(
 
     // See llm_build_deepseek2() for why attn_factor has to be scaled for YaRN RoPE to work correctly.
     // See https://github.com/ggerganov/llama.cpp/discussions/7416 for detailed explanation.
-    const float yarn_attn_factor = model.arch == LLM_ARCH_DEEPSEEK2
+    const bool deepseek2_like = model.arch == LLM_ARCH_DEEPSEEK2 ||
+        (model.arch == LLM_ARCH_DEEPSEEK_OCR && model.hparams.n_embd_head_k_mla != 0 && model.hparams.n_embd_head_v_mla != 0);
+    const float yarn_attn_factor = deepseek2_like
                                     ? 1.0f / (1.0f + 0.1f * logf(1.0f / freq_scale))
                                     : cparams.yarn_attn_factor;
 

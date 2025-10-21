@@ -6136,6 +6136,7 @@ class DeepseekV2Model(TextModel):
 
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRModel(DeepseekV2Model):
+    model_arch = gguf.MODEL_ARCH.DEEPSEEK_OCR
     _experts: list[dict[str, Tensor]] | None = None
 
     def __init__(self, *args, **kwargs):
@@ -6147,17 +6148,15 @@ class DeepseekOCRModel(DeepseekV2Model):
         # the non-MLA path.
         self._uses_mla = bool(self.hparams.get("use_mla", True))
         self._text_impl = DeepseekV2Model if self._uses_mla else DeepseekModel
-        self._retarget_text_architecture(self._text_impl.model_arch)
+        self._text_arch: gguf.MODEL_ARCH | None = None
+        self._configure_text_architecture(self._text_impl.model_arch)
 
-    def _retarget_text_architecture(self, arch: gguf.MODEL_ARCH) -> None:
-        if arch == self.model_arch:
+    def _configure_text_architecture(self, arch: gguf.MODEL_ARCH) -> None:
+        if arch == self._text_arch:
             return
 
-        self.model_arch = arch
-        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
-        self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
-        self.gguf_writer.kv_data[0].pop(gguf.Keys.General.ARCHITECTURE, None)
-        self.gguf_writer.add_architecture()
+        self._text_arch = arch
+        self.tensor_map = gguf.get_tensor_name_map(self._text_arch, self.block_count)
 
     def _call_text_impl(self, method: str, *args, **kwargs):
         return getattr(self._text_impl, method)(self, *args, **kwargs)
