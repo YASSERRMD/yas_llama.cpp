@@ -5866,30 +5866,96 @@ class ArcticModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
+class DeepseekTextImplementation:
+    @staticmethod
+    def set_vocab(model: "DeepseekModel") -> None:
+        try:
+            model._set_vocab_sentencepiece()
+        except FileNotFoundError:
+            model._set_vocab_gpt2()
+
+    @staticmethod
+    def set_gguf_parameters(model: "DeepseekModel") -> None:
+        TextModel.set_gguf_parameters(model)
+        hparams = model.hparams
+        if (rope_dim := hparams.get("head_dim")) is None:
+            rope_dim = hparams["hidden_size"] // hparams["num_attention_heads"]
+
+        model.gguf_writer.add_rope_dimension_count(rope_dim)
+        model.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.NONE)
+        model.gguf_writer.add_leading_dense_block_count(hparams["first_k_dense_replace"])
+        model.gguf_writer.add_vocab_size(hparams["vocab_size"])
+        model.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
+        model.gguf_writer.add_expert_weights_scale(1.0)
+        model.gguf_writer.add_expert_count(hparams["n_routed_experts"])
+        model.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
+
+    @staticmethod
+    def modify_tensors(model: "DeepseekModel", data_torch: Tensor, name: str, bid: int | None
+                       ) -> Iterable[tuple[str, Tensor]]:
+        n_head = model.hparams["num_attention_heads"]
+        n_kv_head = model.hparams.get("num_key_value_heads")
+
+        if name.endswith(("q_proj.weight", "q_proj.bias")):
+            data_torch = DeepseekModel.permute(data_torch, n_head, n_head)
+        if name.endswith(("k_proj.weight", "k_proj.bias")):
+            data_torch = DeepseekModel.permute(data_torch, n_head, n_kv_head)
+
+        # process the experts separately
+        if name.find("mlp.experts") != -1:
+            n_experts = model.hparams["n_routed_experts"]
+            assert bid is not None
+
+            if model._experts is None:
+                model._experts = [{} for _ in range(model.block_count)]
+
+            model._experts[bid][name] = data_torch
+
+            if len(model._experts[bid]) >= n_experts * 3:
+                tensors: list[tuple[str, Tensor]] = []
+
+                # merge the experts into a single 3d tensor
+                for w_name in ["down_proj", "gate_proj", "up_proj"]:
+                    datas: list[Tensor] = []
+
+                    for xid in range(n_experts):
+                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight"
+                        datas.append(model._experts[bid][ename])
+                        del model._experts[bid][ename]
+
+                    data_torch = torch.stack(datas, dim=0)
+
+                    merged_name = f"model.layers.{bid}.mlp.experts.{w_name}.weight"
+
+                    new_name = model.map_tensor_name(merged_name)
+
+                    tensors.append((new_name, data_torch))
+                return tensors
+            else:
+                return []
+
+        return [(model.map_tensor_name(name), data_torch)]
+
+    @staticmethod
+    def prepare_tensors(model: "DeepseekModel") -> None:
+        TextModel.prepare_tensors(model)
+
+        if model._experts is not None:
+            # flatten `list[dict[str, Tensor]]` into `list[str]`
+            experts = [k for d in model._experts for k in d.keys()]
+            if len(experts) > 0:
+                raise ValueError(f"Unprocessed experts: {experts}")
+
+
 @ModelBase.register("DeepseekForCausalLM")
 class DeepseekModel(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK
 
     def set_vocab(self):
-        try:
-            self._set_vocab_sentencepiece()
-        except FileNotFoundError:
-            self._set_vocab_gpt2()
+        DeepseekTextImplementation.set_vocab(self)
 
     def set_gguf_parameters(self):
-        super().set_gguf_parameters()
-        hparams = self.hparams
-        if (rope_dim := hparams.get("head_dim")) is None:
-            rope_dim = hparams["hidden_size"] // hparams["num_attention_heads"]
-
-        self.gguf_writer.add_rope_dimension_count(rope_dim)
-        self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.NONE)
-        self.gguf_writer.add_leading_dense_block_count(hparams["first_k_dense_replace"])
-        self.gguf_writer.add_vocab_size(hparams["vocab_size"])
-        self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
-        self.gguf_writer.add_expert_weights_scale(1.0)
-        self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
-        self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
+        DeepseekTextImplementation.set_gguf_parameters(self)
 
     _experts: list[dict[str, Tensor]] | None = None
 
@@ -5902,57 +5968,10 @@ class DeepseekModel(TextModel):
                 .reshape(weights.shape))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        n_head = self.hparams["num_attention_heads"]
-        n_kv_head = self.hparams.get("num_key_value_heads")
-
-        if name.endswith(("q_proj.weight", "q_proj.bias")):
-            data_torch = DeepseekModel.permute(data_torch, n_head, n_head)
-        if name.endswith(("k_proj.weight", "k_proj.bias")):
-            data_torch = DeepseekModel.permute(data_torch, n_head, n_kv_head)
-
-        # process the experts separately
-        if name.find("mlp.experts") != -1:
-            n_experts = self.hparams["n_routed_experts"]
-            assert bid is not None
-
-            if self._experts is None:
-                self._experts = [{} for _ in range(self.block_count)]
-
-            self._experts[bid][name] = data_torch
-
-            if len(self._experts[bid]) >= n_experts * 3:
-                tensors: list[tuple[str, Tensor]] = []
-
-                # merge the experts into a single 3d tensor
-                for w_name in ["down_proj", "gate_proj", "up_proj"]:
-                    datas: list[Tensor] = []
-
-                    for xid in range(n_experts):
-                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight"
-                        datas.append(self._experts[bid][ename])
-                        del self._experts[bid][ename]
-
-                    data_torch = torch.stack(datas, dim=0)
-
-                    merged_name = f"model.layers.{bid}.mlp.experts.{w_name}.weight"
-
-                    new_name = self.map_tensor_name(merged_name)
-
-                    tensors.append((new_name, data_torch))
-                return tensors
-            else:
-                return []
-
-        return [(self.map_tensor_name(name), data_torch)]
+        return DeepseekTextImplementation.modify_tensors(self, data_torch, name, bid)
 
     def prepare_tensors(self):
-        super().prepare_tensors()
-
-        if self._experts is not None:
-            # flatten `list[dict[str, Tensor]]` into `list[str]`
-            experts = [k for d in self._experts for k in d.keys()]
-            if len(experts) > 0:
-                raise ValueError(f"Unprocessed experts: {experts}")
+        DeepseekTextImplementation.prepare_tensors(self)
 
 
 @ModelBase.register("DeepseekV2ForCausalLM")
@@ -6146,10 +6165,50 @@ class DeepseekOCRModel(DeepseekV2Model):
         # or the MLA-enabled DeepSeek2/DeepSeek3 variants. Keep track of which text
         # implementation to reuse and update the tensor mapping when switching to
         # the non-MLA path.
-        self._uses_mla = bool(self.hparams.get("use_mla", True))
-        self._text_impl = DeepseekV2Model if self._uses_mla else DeepseekModel
+        self._uses_mla = self._detect_mla_support()
         self._text_arch: gguf.MODEL_ARCH | None = None
-        self._configure_text_architecture(self._text_impl.model_arch)
+        self._configure_text_architecture(
+            DeepseekV2Model.model_arch if self._uses_mla else DeepseekModel.model_arch
+        )
+
+    def _detect_mla_support(self) -> bool:
+        """Infer whether the text tower is MLA-enabled.
+
+        Some checkpoints omit the explicit ``use_mla`` flag from the flattened
+        config that ends up in ``self.hparams``.  In those cases we fall back to
+        a couple of heuristics derived from the public DeepSeek-OCR release: the
+        MLA path exposes positive LoRA ranks and specialised head dimensions
+        (``kv_lora_rank``/``q_lora_rank`` as well as ``v_head_dim`` and
+        ``qk_nope_head_dim``).  If none of these signals are present we assume
+        the checkpoint keeps the original DeepSeek text transformer.
+        """
+
+        # Direct flag, if available.
+        if "use_mla" in self.hparams:
+            return bool(self.hparams["use_mla"])
+
+        # Some configs keep the flag under a nested "language_model" section.
+        language_model_cfg = self.hparams.get("language_model")
+        if isinstance(language_model_cfg, dict):
+            for key in ("use_mla", "config"):
+                nested = language_model_cfg.get(key)
+                if isinstance(nested, dict) and "use_mla" in nested:
+                    return bool(nested["use_mla"])
+                if key == "use_mla" and nested is not None:
+                    return bool(nested)
+
+        # Fall back to checking MLA-specific dimensions when they are positive.
+        kv_lora_rank = self.hparams.get("kv_lora_rank", 0)
+        q_lora_rank = self.hparams.get("q_lora_rank", 0)
+        v_head_dim = self.hparams.get("v_head_dim", 0)
+        qk_nope_head_dim = self.hparams.get("qk_nope_head_dim", 0)
+
+        if kv_lora_rank and q_lora_rank:
+            return True
+        if v_head_dim and qk_nope_head_dim:
+            return True
+
+        return False
 
     def _configure_text_architecture(self, arch: gguf.MODEL_ARCH) -> None:
         if arch == self._text_arch:
@@ -6158,15 +6217,17 @@ class DeepseekOCRModel(DeepseekV2Model):
         self._text_arch = arch
         self.tensor_map = gguf.get_tensor_name_map(self._text_arch, self.block_count)
 
-    def _call_text_impl(self, method: str, *args, **kwargs):
-        return getattr(self._text_impl, method)(self, *args, **kwargs)
-
-
     def set_vocab(self):
-        self._call_text_impl("set_vocab")
+        if self._uses_mla:
+            super().set_vocab()
+        else:
+            DeepseekTextImplementation.set_vocab(self)
 
     def set_gguf_parameters(self):
-        self._call_text_impl("set_gguf_parameters")
+        if self._uses_mla:
+            super().set_gguf_parameters()
+        else:
+            DeepseekTextImplementation.set_gguf_parameters(self)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("language_model."):
@@ -6175,10 +6236,16 @@ class DeepseekOCRModel(DeepseekV2Model):
             # Skip multimodal tensors (vision encoder, projector, etc.).
             return []
 
-        return self._call_text_impl("modify_tensors", data_torch, name, bid)
+        if self._uses_mla:
+            return super().modify_tensors(data_torch, name, bid)
+
+        return DeepseekTextImplementation.modify_tensors(self, data_torch, name, bid)
 
     def prepare_tensors(self):
-        self._call_text_impl("prepare_tensors")
+        if self._uses_mla:
+            super().prepare_tensors()
+        else:
+            DeepseekTextImplementation.prepare_tensors(self)
 
 
 @ModelBase.register("Dots1ForCausalLM")
