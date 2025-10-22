@@ -85,7 +85,8 @@ class ModelBase:
                  use_temp_file: bool = False, eager: bool = False,
                  metadata_override: Path | None = None, model_name: str | None = None,
                  split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False,
-                 small_first_shard: bool = False, hparams: dict[str, Any] | None = None, remote_hf_model_id: str | None = None):
+                 small_first_shard: bool = False, hparams: dict[str, Any] | None = None,
+                 remote_hf_model_id: str | None = None, trust_remote_code: bool = False):
         if type(self) is ModelBase or \
                 type(self) is TextModel or \
                 type(self) is MmprojModel:
@@ -115,7 +116,9 @@ class ModelBase:
             self.is_safetensors = len(self.part_names) > 0
             if not self.is_safetensors:
                 self.part_names = ModelBase.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
-        self.hparams = ModelBase.load_hparams(self.dir_model) if hparams is None else hparams
+        self.trust_remote_code = trust_remote_code
+        self.hparams = (ModelBase.load_hparams(self.dir_model, trust_remote_code=self.trust_remote_code)
+                        if hparams is None else hparams)
         self.tensor_names = None
         self.metadata_override = metadata_override
         self.model_name = model_name
@@ -426,14 +429,17 @@ class ModelBase:
         return part_names
 
     @staticmethod
-    def load_hparams(dir_model: Path):
+    def load_hparams(dir_model: Path, *, trust_remote_code: bool = False):
         try:
             # for security reason, we don't allow loading remote code by default
             # if a model need remote code, we will fallback to config.json
-            config = AutoConfig.from_pretrained(dir_model, trust_remote_code=False).to_dict()
+            config = AutoConfig.from_pretrained(dir_model, trust_remote_code=trust_remote_code).to_dict()
         except Exception as e:
             logger.warning(f"Failed to load model config from {dir_model}: {e}")
-            logger.warning("Trying to load config.json instead")
+            if not trust_remote_code:
+                logger.warning("Trying to load config.json instead (pass --trust-remote-code to enable custom code)")
+            else:
+                logger.warning("Trying to load config.json instead")
             with open(dir_model / "config.json", "r", encoding="utf-8") as f:
                 config = json.load(f)
         if "llm_config" in config:
@@ -4470,7 +4476,8 @@ class NomicBertModel(BertModel):
     def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, **kwargs: Any):
         hparams = kwargs.pop("hparams", None)
         if hparams is None:
-            hparams = ModelBase.load_hparams(dir_model)
+            trust_remote_code = kwargs.get("trust_remote_code", False)
+            hparams = ModelBase.load_hparams(dir_model, trust_remote_code=trust_remote_code)
 
         self.is_moe = bool(hparams.get("moe_every_n_layers"))
         self.model_arch = gguf.MODEL_ARCH.NOMIC_BERT_MOE if self.is_moe else gguf.MODEL_ARCH.NOMIC_BERT
@@ -7899,6 +7906,10 @@ def parse_args() -> argparse.Namespace:
         help="(Experimental) Read safetensors file remotely without downloading to disk. Config and tokenizer files will still be downloaded. To use this feature, you need to specify Hugging Face model repo name instead of a local directory. For example: 'HuggingFaceTB/SmolLM2-1.7B-Instruct'. Note: To access gated repo, set HF_TOKEN environment variable to your Hugging Face token.",
     )
     parser.add_argument(
+        "--trust-remote-code", action="store_true",
+        help="Allow executing custom code in model repositories when loading configs. Use with caution.",
+    )
+    parser.add_argument(
         "--mmproj", action="store_true",
         help="(Experimental) Export multimodal projector (mmproj) for vision models. This will only work on some vision models. A prefix 'mmproj-' will be added to the output file name.",
     )
@@ -8010,7 +8021,7 @@ def main() -> None:
     with torch.inference_mode():
         output_type = ftype_map[args.outtype]
         model_type = ModelType.MMPROJ if args.mmproj else ModelType.TEXT
-        hparams = ModelBase.load_hparams(dir_model)
+        hparams = ModelBase.load_hparams(dir_model, trust_remote_code=args.trust_remote_code)
         model_architecture = get_model_architecture(hparams, model_type)
         logger.info(f"Model architecture: {model_architecture}")
         try:
@@ -8026,7 +8037,9 @@ def main() -> None:
                                      split_max_tensors=args.split_max_tensors,
                                      split_max_size=split_str_to_n_bytes(args.split_max_size), dry_run=args.dry_run,
                                      small_first_shard=args.no_tensor_first_split,
-                                     remote_hf_model_id=hf_repo_id)
+                                     remote_hf_model_id=hf_repo_id,
+                                     trust_remote_code=args.trust_remote_code,
+                                     hparams=hparams)
 
         if args.vocab_only:
             logger.info("Exporting model vocab...")
