@@ -1,17 +1,21 @@
-import os
+
 import json
+import os
 import tempfile
 import unittest
-
-import pytest
-pytest.importorskip("torch")
-
-import torch
-import numpy as np
-import gguf
 from pathlib import Path
 
-from convert_hf_to_gguf import CodeGenModel
+import pytest
+
+pytest.importorskip("torch")
+
+import torch  # noqa: E402
+import gguf  # noqa: E402
+
+from convert_hf_to_gguf import CodeGenModel  # noqa: E402
+
+
+
 
 class TestCodeGenBias(unittest.TestCase):
     def _create_model(self, dir_model: str, with_bias: bool):
